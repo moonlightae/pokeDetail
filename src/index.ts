@@ -362,7 +362,7 @@ input.addEventListener('keydown', (event) => {
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
-  addPokemon(findMatches(input.value, 1)[0]);
+  addPokemon(pokemonIndex.get(normalize(input.value)));
 });
 
 document.addEventListener('click', (event) => {
