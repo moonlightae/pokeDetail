@@ -1,6 +1,23 @@
 import './styles.css';
 import { calculateRange } from './calculator';
 
+type SpeedAbility = {
+  slug: string;
+  name: string;
+  factor: number;
+  condition: string;
+  hidden: boolean;
+};
+
+type MegaForm = {
+  id: number;
+  slug: string;
+  name: string;
+  baseSpeed: number;
+  sprite: string;
+  speedAbilities: SpeedAbility[];
+};
+
 type Pokemon = {
   id: number;
   slug: string;
@@ -8,10 +25,19 @@ type Pokemon = {
   englishName: string;
   baseSpeed: number;
   sprite: string;
+  speedAbilities: SpeedAbility[];
+  megaForms: MegaForm[];
 };
 
 type PokemonData = {
-  meta: { generatedAt: string; source: string; sourceUrl: string; count: number };
+  meta: {
+    generatedAt: string;
+    source: string;
+    sourceUrl: string;
+    count: number;
+    megaFormCount: number;
+    speedAbilityPokemonCount: number;
+  };
   rankings: {
     double: {
       source: string;
@@ -97,8 +123,10 @@ app.innerHTML = `
             <h2 id="comparison-title">스피드 범위</h2>
           </div>
           <div class="legend" aria-label="범위 기준">
-            <span><i class="min-dot"></i>최저: 개체값 0 · 노력치 0 · 하락 성격</span>
+            <span><i class="min-dot"></i>최저: 개체값 31 · 노력치 0 · 하락 성격</span>
             <span><i class="max-dot"></i>최속: 개체값 31 · 노력치 252 · 상승 성격</span>
+            <span><i class="mega-dot"></i>메가진화</span>
+            <span><i class="ability-dot"></i>특성 발동</span>
           </div>
         </div>
 
@@ -110,7 +138,7 @@ app.innerHTML = `
 
         <div class="formula-strip">
           <span class="formula-label">CALCULATION</span>
-          <code>⌊(⌊(종족값×2 + IV + ⌊EV/4⌋) × 레벨/100⌋ + 5) × 성격⌋</code>
+          <code>IV 31 고정 · ⌊(⌊(종족값×2 + 31 + ⌊EV/4⌋) × 레벨/100⌋ + 5) × 성격⌋</code>
           <span id="data-stamp">로컬 데이터 준비 중</span>
         </div>
       </section>
@@ -151,46 +179,175 @@ function axisTicks(min: number, max: number, count = 6) {
   return Array.from({ length: count }, (_, index) => Math.round(min + (span * index) / (count - 1)));
 }
 
+type SpeedRange = ReturnType<typeof calculateRange>;
+type VariantTrack = {
+  kind: 'ability';
+  label: string;
+  detail: string;
+  range: SpeedRange;
+  sprite?: string;
+};
+
+type DisplayChip = {
+  key: string;
+  name: string;
+  sprite: string;
+  pokemonId?: number;
+  pickRank?: number;
+  abilityNames: string[];
+  megaCount?: number;
+};
+
+type ChartRow = {
+  key: string;
+  baseSpeed: number;
+  chips: DisplayChip[];
+  range: SpeedRange;
+  tracks: VariantTrack[];
+  mega: boolean;
+};
+
+function boostedRange(range: SpeedRange, factor: number): SpeedRange {
+  return {
+    min: Math.floor(range.min * factor),
+    neutralMin: Math.floor(range.neutralMin * factor),
+    neutralMax: Math.floor(range.neutralMax * factor),
+    max: Math.floor(range.max * factor),
+  };
+}
+
+function abilityTracks(name: string, baseSpeed: number, abilities: SpeedAbility[], sprite?: string): VariantTrack[] {
+  const baseRange = calculateRange(baseSpeed, level);
+  return abilities.map((ability) => ({
+    kind: 'ability' as const,
+    label: `${name} · ${ability.name}${ability.hidden ? ' (숨겨진 특성)' : ''}`,
+    detail: `${ability.condition} · ×${ability.factor}`,
+    range: boostedRange(baseRange, ability.factor),
+    sprite,
+  }));
+}
+
 function renderChart() {
   if (!selected.length) {
     chart.innerHTML = `<div class="empty-state"><span class="empty-ball" aria-hidden="true"></span><strong>비교할 포켓몬을 추가해 주세요.</strong><span>최대 6마리까지 한 축에서 볼 수 있어요.</span></div>`;
     return;
   }
 
-  chart.classList.toggle('dense', selected.length > 10);
-  const rows = selected
-    .map((pokemon) => ({ pokemon, range: calculateRange(pokemon.baseSpeed, level) }))
-    .sort((a, b) => b.range.max - a.range.max);
-  const axisMin = Math.min(...rows.map(({ range }) => range.min));
-  const axisMax = Math.max(...rows.map(({ range }) => range.max));
+  const pokemonBySpeed = new Map<number, Pokemon[]>();
+  selected.forEach((pokemon) => {
+    const group = pokemonBySpeed.get(pokemon.baseSpeed) ?? [];
+    group.push(pokemon);
+    pokemonBySpeed.set(pokemon.baseSpeed, group);
+  });
+  const baseRows: ChartRow[] = [...pokemonBySpeed.entries()]
+    .map(([baseSpeed, pokemon]) => ({
+      key: `base-${baseSpeed}`,
+      baseSpeed,
+      chips: pokemon.map((item) => ({
+        key: `pokemon-${item.id}`,
+        name: item.koreanName,
+        sprite: item.sprite,
+        pokemonId: item.id,
+        pickRank: activePreset ? pickRankById.get(item.id) : undefined,
+        abilityNames: item.speedAbilities.map((ability) => ability.name),
+        megaCount: item.megaForms.length,
+      })),
+      range: calculateRange(baseSpeed, level),
+      tracks: pokemon.flatMap((item) => abilityTracks(item.koreanName, item.baseSpeed, item.speedAbilities)),
+      mega: false,
+    }));
+  const megaRows: ChartRow[] = selected.flatMap((pokemon) => pokemon.megaForms.map((mega) => ({
+    key: `mega-${mega.id}`,
+    baseSpeed: mega.baseSpeed,
+    chips: [{
+      key: `mega-chip-${mega.id}`,
+      name: `${pokemon.koreanName} · ${mega.name}`,
+      sprite: mega.sprite,
+      abilityNames: mega.speedAbilities.map((ability) => ability.name),
+    }],
+    range: calculateRange(mega.baseSpeed, level),
+    tracks: abilityTracks(`${pokemon.koreanName} · ${mega.name}`, mega.baseSpeed, mega.speedAbilities, mega.sprite),
+    mega: true,
+  })));
+  const rows = [...baseRows, ...megaRows]
+    .sort((a, b) => b.baseSpeed - a.baseSpeed || Number(a.mega) - Number(b.mega));
+  const everyRange = rows.flatMap((row) => [row.range, ...row.tracks.map((track) => track.range)]);
+  const axisMin = Math.min(...everyRange.map((range) => range.min));
+  const axisMax = Math.max(...everyRange.map((range) => range.max));
   const span = Math.max(1, axisMax - axisMin);
   const padding = Math.max(4, Math.round(span * 0.08));
   const min = Math.max(0, axisMin - padding);
   const max = axisMax + padding;
   const domain = max - min;
   const ticks = axisTicks(min, max);
+  const extent = (row: ChartRow) => ({
+    min: Math.min(row.range.min, ...row.tracks.map((track) => track.range.min)),
+    max: Math.max(row.range.max, ...row.tracks.map((track) => track.range.max)),
+  });
+  const labelRoom = domain * 0.12;
+  const packedRows: ChartRow[][] = [];
+  rows.forEach((row) => {
+    const current = extent(row);
+    const lane = packedRows.find((items) => items.every((item) => {
+      const placed = extent(item);
+      return current.max + labelRoom < placed.min || placed.max + labelRoom < current.min;
+    }));
+    if (lane) lane.push(row);
+    else packedRows.push([row]);
+  });
+  chart.classList.toggle('dense', packedRows.length > 10 || rows.length > 20);
 
-  const lanes = rows.map(({ pokemon, range }) => {
-    const color = COLORS[selected.findIndex((item) => item.id === pokemon.id) % COLORS.length];
-    const left = ((range.min - min) / domain) * 100;
-    const width = ((range.max - range.min) / domain) * 100;
-    const neutralLeft = ((range.neutralMin - range.min) / Math.max(1, range.max - range.min)) * 100;
-    const neutralWidth = ((range.neutralMax - range.neutralMin) / Math.max(1, range.max - range.min)) * 100;
-    const pickRank = activePreset ? pickRankById.get(pokemon.id) : undefined;
-
-    return `
-      <article class="speed-lane" aria-label="${pokemon.koreanName} 최저속 ${range.min}, 최속 ${range.max}">
-        <div class="lane-line"></div>
-        <div class="speed-range" style="--left:${left}%; --width:${width}%; --color:${color}; --neutral-left:${neutralLeft}%; --neutral-width:${neutralWidth}%">
-          <div class="range-bar"><span class="neutral-range" title="무보정 범위"></span></div>
-          <span class="range-value range-min">${range.min}</span>
-          <span class="range-value range-max">${range.max}</span>
-          <div class="pokemon-label">
-            <div class="sprite-wrap"><img src="${pokemon.sprite}" alt="" loading="lazy" /></div>
-            <div><strong>${pickRank ? `<em>#${pickRank}</em>` : ''}${pokemon.koreanName}</strong><span>No.${String(pokemon.id).padStart(4, '0')} · S ${pokemon.baseSpeed}</span></div>
+  const lanes = packedRows.map((laneRows, laneIndex) => {
+    const maxTrackCount = Math.max(...laneRows.map((row) => row.tracks.length));
+    const segments = laneRows.map(({ key, baseSpeed, chips: rowChips, range, tracks, mega }, segmentIndex) => {
+      const color = mega ? '#aeb5c3' : COLORS[(laneIndex + segmentIndex) % COLORS.length];
+      const left = ((range.min - min) / domain) * 100;
+      const width = ((range.max - range.min) / domain) * 100;
+      const neutralLeft = ((range.neutralMin - range.min) / Math.max(1, range.max - range.min)) * 100;
+      const neutralWidth = ((range.neutralMax - range.neutralMin) / Math.max(1, range.max - range.min)) * 100;
+      const chips = rowChips.map((item) => `
+        <div class="pokemon-chip${mega ? ' mega-chip' : ''}">
+          <div class="sprite-wrap"><img src="${item.sprite}" alt="" loading="lazy" /></div>
+          <div>
+            <strong>${item.pickRank ? `<em>#${item.pickRank}</em>` : ''}${item.name}</strong>
+            <span>S ${baseSpeed}${mega ? ' · MEGA' : ''}${item.megaCount ? ` · MEGA ${item.megaCount}` : ''}${item.abilityNames.length ? ` · ${item.abilityNames.join('/')}` : ''}</span>
           </div>
-          <button class="remove-button" type="button" data-remove="${pokemon.id}" aria-label="${pokemon.koreanName} 삭제">×</button>
+          ${item.pokemonId ? `<button class="remove-button" type="button" data-remove="${item.pokemonId}" aria-label="${item.name} 삭제">×</button>` : ''}
         </div>
+      `).join('');
+      const variants = tracks.map((track, index) => {
+        const trackLeft = ((track.range.min - min) / domain) * 100;
+        const trackWidth = ((track.range.max - track.range.min) / domain) * 100;
+        return `
+          <div class="variant-track ${track.kind}" style="--track-left:${trackLeft}%; --track-width:${trackWidth}%; top:${70 + index * 24}px">
+            <div class="variant-line"></div>
+            <span class="variant-min">${track.range.min}</span>
+            <span class="variant-max">${track.range.max}</span>
+            <div class="variant-label">
+              ${track.sprite ? `<img src="${track.sprite}" alt="" loading="lazy" />` : '<i aria-hidden="true"></i>'}
+              <strong>${track.label}</strong>
+              <span>${track.detail}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+      return `
+        <div class="row-segment${mega ? ' mega-row' : ''}" data-row="${key}">
+          <div class="speed-range" style="--left:${left}%; --width:${width}%; --color:${color}; --neutral-left:${neutralLeft}%; --neutral-width:${neutralWidth}%">
+            <div class="range-bar"><span class="neutral-range" title="무보정 범위"></span></div>
+            <span class="range-value range-min">${range.min}</span>
+            <span class="range-value range-max">${range.max}</span>
+          </div>
+          <div class="pokemon-group" style="left:${left}%">${chips}</div>
+          ${variants}
+        </div>
+      `;
+    }).join('');
+    const names = laneRows.flatMap((row) => row.chips.map((chip) => chip.name)).join(', ');
+    return `
+      <article class="speed-lane" style="height:${82 + maxTrackCount * 24}px" aria-label="같은 행: ${names}">
+        <div class="lane-line"></div>
+        ${segments}
       </article>
     `;
   }).join('');
@@ -393,7 +550,7 @@ async function loadPokemon() {
     pickRankById = new Map(doubleRanking.map((row) => [row.pokemon.id, row.rank]));
     selected = INITIAL_IDS.map((id) => allPokemon.find((item) => item.id === id)).filter((item): item is Pokemon => Boolean(item));
     const date = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(data.meta.generatedAt));
-    dataStamp.textContent = `${data.meta.count.toLocaleString('ko-KR')}마리 · ${date} 동기화`;
+    dataStamp.textContent = `${data.meta.count.toLocaleString('ko-KR')}마리 · 메가 ${data.meta.megaFormCount}폼 · 스피드 특성 ${data.meta.speedAbilityPokemonCount}마리 · ${date} 동기화`;
     rankingStamp.textContent = `포케챔스 시즌 ${data.rankings.double.season} · ${data.rankings.double.updated ?? '최근 갱신'}`;
     renderChart();
     registerWebMcpTool();

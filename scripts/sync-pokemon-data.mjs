@@ -3,7 +3,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BASE = 'https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv';
-const FILES = ['pokemon.csv', 'pokemon_stats.csv', 'pokemon_species_names.csv'];
+const FILES = [
+  'pokemon.csv',
+  'pokemon_stats.csv',
+  'pokemon_species_names.csv',
+  'pokemon_forms.csv',
+  'pokemon_abilities.csv',
+  'abilities.csv',
+  'ability_names.csv',
+];
 const DOUBLE_USAGE_URL = 'https://pokemon.yodams.com/api/usage-battle-unified.php';
 
 function parseCsv(text) {
@@ -56,7 +64,7 @@ async function fetchJson(url) {
   return response.json();
 }
 
-const [pokemonRows, statRows, nameRows, usageData] = await Promise.all([
+const [pokemonRows, statRows, nameRows, formRows, pokemonAbilityRows, abilityRows, abilityNameRows, usageData] = await Promise.all([
   ...FILES.map(fetchCsv),
   fetchJson(DOUBLE_USAGE_URL),
 ]);
@@ -74,20 +82,90 @@ const englishBySpecies = new Map(
   nameRows.filter((row) => row.local_language_id === '9').map((row) => [Number(row.pokemon_species_id), row.name]),
 );
 
+const speedAbilityRules = {
+  'speed-boost': { factor: 1.5, condition: '턴 종료 후 +1 (1턴 기준)' },
+  'swift-swim': { factor: 2, condition: '비가 내릴 때' },
+  chlorophyll: { factor: 2, condition: '햇살이 강할 때' },
+  'motor-drive': { factor: 1.5, condition: '전기 기술을 받으면 +1' },
+  unburden: { factor: 2, condition: '지닌 도구를 소모하면' },
+  'quick-feet': { factor: 1.5, condition: '상태 이상일 때' },
+  'slow-start': { factor: 0.5, condition: '등장 후 5턴 동안' },
+  'weak-armor': { factor: 2, condition: '물리 기술을 받으면 +2' },
+  'sand-rush': { factor: 2, condition: '모래바람일 때' },
+  rattled: { factor: 1.5, condition: '특정 공격을 받으면 +1' },
+  'slush-rush': { factor: 2, condition: '설경일 때' },
+  'surge-surfer': { factor: 2, condition: '일렉트릭필드일 때' },
+  'steam-engine': { factor: 4, condition: '불꽃·물 기술을 받으면 +6' },
+  protosynthesis: { factor: 1.5, condition: '스피드가 가장 높고 고대활성 발동 시' },
+  'quark-drive': { factor: 1.5, condition: '스피드가 가장 높고 쿼크차지 발동 시' },
+  'anger-shell': { factor: 1.5, condition: 'HP가 절반 이하가 되면 +1' },
+};
+
+const abilitySlugById = new Map(abilityRows.map((row) => [Number(row.id), row.identifier]));
+const koreanAbilityById = new Map(
+  abilityNameRows.filter((row) => row.local_language_id === '3').map((row) => [Number(row.ability_id), row.name]),
+);
+const pokemonAbilitiesById = new Map();
+for (const row of pokemonAbilityRows) {
+  const pokemonId = Number(row.pokemon_id);
+  const abilityId = Number(row.ability_id);
+  const slug = abilitySlugById.get(abilityId);
+  const rule = speedAbilityRules[slug];
+  if (!rule) continue;
+  const abilities = pokemonAbilitiesById.get(pokemonId) ?? [];
+  abilities.push({
+    slug,
+    name: koreanAbilityById.get(abilityId) ?? slug,
+    factor: rule.factor,
+    condition: rule.condition,
+    hidden: row.is_hidden === '1',
+  });
+  pokemonAbilitiesById.set(pokemonId, abilities);
+}
+
+const megaFormsBySpecies = new Map();
+for (const form of formRows.filter((row) => row.is_mega === '1')) {
+  const megaRow = pokemonRows.find((row) => row.id === form.pokemon_id);
+  if (!megaRow) continue;
+  const id = Number(megaRow.id);
+  const speciesId = Number(megaRow.species_id);
+  const megaSuffix = megaRow.identifier.split('-mega')[1]?.replace(/^-/, '').toUpperCase();
+  const megaForms = megaFormsBySpecies.get(speciesId) ?? [];
+  megaForms.push({
+    id,
+    slug: megaRow.identifier,
+    name: `메가${megaSuffix ? ` ${megaSuffix}` : ''}`,
+    baseSpeed: speedByPokemon.get(id),
+    sprite: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`,
+    speedAbilities: pokemonAbilitiesById.get(id) ?? [],
+  });
+  megaFormsBySpecies.set(speciesId, megaForms);
+}
+
+function createPokemon(row, koreanName, englishName) {
+  const id = Number(row.id);
+  const speciesId = Number(row.species_id);
+  return {
+    id,
+    slug: row.identifier,
+    koreanName,
+    englishName,
+    baseSpeed: speedByPokemon.get(id),
+    sprite: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`,
+    speedAbilities: pokemonAbilitiesById.get(id) ?? [],
+    megaForms: row.is_default === '1' ? (megaFormsBySpecies.get(speciesId) ?? []) : [],
+  };
+}
+
 const pokemon = defaultPokemon
   .map((row) => {
-    const id = Number(row.id);
     const speciesId = Number(row.species_id);
-    const baseSpeed = speedByPokemon.get(id);
-    if (!baseSpeed) return null;
-    return {
-      id,
-      slug: row.identifier,
-      koreanName: koreanBySpecies.get(speciesId) ?? englishBySpecies.get(speciesId) ?? row.identifier,
-      englishName: englishBySpecies.get(speciesId) ?? row.identifier,
-      baseSpeed,
-      sprite: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`,
-    };
+    if (!speedByPokemon.get(Number(row.id))) return null;
+    return createPokemon(
+      row,
+      koreanBySpecies.get(speciesId) ?? englishBySpecies.get(speciesId) ?? row.identifier,
+      englishBySpecies.get(speciesId) ?? row.identifier,
+    );
   })
   .filter(Boolean)
   .sort((a, b) => a.id - b.id);
@@ -119,14 +197,11 @@ function resolveRankingPokemon(row) {
   const koreanBase = koreanBySpecies.get(resolvedSpeciesId) ?? englishBySpecies.get(resolvedSpeciesId) ?? pokemonRow.identifier;
   const englishBase = englishBySpecies.get(resolvedSpeciesId) ?? pokemonRow.identifier;
 
-  return {
-    id,
-    slug: pokemonRow.identifier,
-    koreanName: formName ? `${koreanBase} (${formName})` : koreanBase,
-    englishName: formName ? `${englishBase} (${suffix})` : englishBase,
-    baseSpeed: speedByPokemon.get(id),
-    sprite: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`,
-  };
+  return createPokemon(
+    pokemonRow,
+    formName ? `${koreanBase} (${formName})` : koreanBase,
+    formName ? `${englishBase} (${suffix})` : englishBase,
+  );
 }
 
 const doubleRanking = (doubleUsage?.rows ?? [])
@@ -141,6 +216,8 @@ const output = {
     source: 'PokeAPI/pokeapi CSV snapshot',
     sourceUrl: 'https://github.com/PokeAPI/pokeapi/tree/master/data/v2/csv',
     count: pokemon.length,
+    megaFormCount: [...megaFormsBySpecies.values()].flat().length,
+    speedAbilityPokemonCount: pokemon.filter((item) => item.speedAbilities.length > 0).length,
   },
   rankings: {
     double: {
