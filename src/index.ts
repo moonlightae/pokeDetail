@@ -108,9 +108,9 @@ app.innerHTML = `
         <div class="ranking-presets" aria-label="더블배틀 픽률 프리셋">
           <div class="preset-label"><span>DOUBLE PICK</span><b>픽률 순위 한 번에 보기</b></div>
           <div class="preset-buttons">
-            <button type="button" data-top="20">TOP 20</button>
-            <button type="button" data-top="50">TOP 50</button>
-            <button type="button" data-top="100">TOP 100</button>
+            <button type="button" data-top="20" aria-pressed="false">TOP 20</button>
+            <button type="button" data-top="50" aria-pressed="false">TOP 50</button>
+            <button type="button" data-top="100" aria-pressed="false">TOP 100</button>
           </div>
           <span class="ranking-stamp" id="ranking-stamp">포케챔스 순위 준비 중</span>
         </div>
@@ -163,6 +163,7 @@ let pokemonIndex = new Map<string, Pokemon>();
 let doubleRanking: Array<{ rank: number; pokemon: Pokemon }> = [];
 let pickRankById = new Map<number, number>();
 let activePreset: number | null = null;
+let manualSelectedIds = new Set<number>();
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/[.'’\s_-]/g, '');
 
@@ -250,7 +251,9 @@ function renderChart() {
         sprite: item.sprite,
         mega: false,
         pokemonId: item.id,
-        pickRank: activePreset ? pickRankById.get(item.id) : undefined,
+        pickRank: activePreset && (pickRankById.get(item.id) ?? Infinity) <= activePreset
+          ? pickRankById.get(item.id)
+          : undefined,
         abilityNames: item.speedAbilities.map((ability) => ability.name),
         megaCount: item.megaForms.length,
       })),
@@ -356,7 +359,9 @@ function renderChart() {
 
   chart.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((button) => {
     button.addEventListener('click', () => {
-      selected = selected.filter((item) => item.id !== Number(button.dataset.remove));
+      const pokemonId = Number(button.dataset.remove);
+      manualSelectedIds.delete(pokemonId);
+      selected = selected.filter((item) => item.id !== pokemonId);
       renderChart();
     });
   });
@@ -405,14 +410,15 @@ function addPokemon(pokemon?: Pokemon) {
     message.className = 'search-message error';
     return;
   }
-  if (activePreset) {
-    selected = [];
-    activePreset = null;
-    presetButtons.forEach((button) => button.classList.remove('active'));
-  }
   if (selected.some((item) => item.id === pokemon.id)) {
-    message.textContent = `${pokemon.koreanName}은(는) 이미 비교 중이에요.`;
-    message.className = 'search-message error';
+    if (activePreset && !manualSelectedIds.has(pokemon.id)) {
+      manualSelectedIds.add(pokemon.id);
+      message.textContent = `${pokemon.koreanName}을(를) 검색 선택으로 고정했어요. 픽률 순위를 빼도 유지됩니다.`;
+      message.className = 'search-message success';
+    } else {
+      message.textContent = `${pokemon.koreanName}은(는) 이미 비교 중이에요.`;
+      message.className = 'search-message error';
+    }
     hideSuggestions();
     return;
   }
@@ -421,6 +427,7 @@ function addPokemon(pokemon?: Pokemon) {
     message.className = 'search-message error';
     return;
   }
+  manualSelectedIds.add(pokemon.id);
   selected.push(pokemon);
   input.value = '';
   message.textContent = `${pokemon.koreanName}을(를) 스피드 라인에 추가했어요.`;
@@ -431,13 +438,31 @@ function addPokemon(pokemon?: Pokemon) {
 }
 
 function loadRankingPreset(limit: number) {
+  if (activePreset === limit) {
+    activePreset = null;
+    selected = selected.filter((pokemon) => manualSelectedIds.has(pokemon.id));
+    presetButtons.forEach((button) => {
+      button.classList.remove('active');
+      button.setAttribute('aria-pressed', 'false');
+    });
+    message.textContent = `더블배틀 픽률 TOP ${limit}을(를) 목록에서 뺐어요.`;
+    message.className = 'search-message success';
+    renderChart();
+    return;
+  }
+
   const rankedPokemon = doubleRanking
     .slice(0, limit)
     .map((row) => row.pokemon);
+  const manualPokemon = selected.filter((pokemon) => manualSelectedIds.has(pokemon.id));
   activePreset = limit;
-  selected = rankedPokemon;
-  presetButtons.forEach((button) => button.classList.toggle('active', Number(button.dataset.top) === limit));
-  message.textContent = `더블배틀 픽률 TOP ${rankedPokemon.length}을(를) 불러왔어요.`;
+  selected = [...new Map([...manualPokemon, ...rankedPokemon].map((pokemon) => [pokemon.id, pokemon])).values()];
+  presetButtons.forEach((button) => {
+    const isActive = Number(button.dataset.top) === limit;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+  message.textContent = `현재 목록에 더블배틀 픽률 TOP ${rankedPokemon.length}을(를) 추가했어요.`;
   message.className = 'search-message success';
   renderChart();
   document.querySelector('.comparison')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -445,7 +470,11 @@ function loadRankingPreset(limit: number) {
 
 function setComparison(pokemon: Pokemon[], nextLevel: number) {
   activePreset = null;
-  presetButtons.forEach((button) => button.classList.remove('active'));
+  manualSelectedIds = new Set(pokemon.map((item) => item.id));
+  presetButtons.forEach((button) => {
+    button.classList.remove('active');
+    button.setAttribute('aria-pressed', 'false');
+  });
   selected = pokemon;
   level = nextLevel;
   levelButtons.forEach((button) => button.classList.toggle('active', Number(button.dataset.level) === level));
@@ -543,6 +572,7 @@ async function loadPokemon() {
     doubleRanking = data.rankings.double.rows;
     pickRankById = new Map(doubleRanking.map((row) => [row.pokemon.id, row.rank]));
     selected = INITIAL_IDS.map((id) => allPokemon.find((item) => item.id === id)).filter((item): item is Pokemon => Boolean(item));
+    manualSelectedIds = new Set(selected.map((item) => item.id));
     const date = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(data.meta.generatedAt));
     dataStamp.textContent = `${data.meta.count.toLocaleString('ko-KR')}마리 · 메가 ${data.meta.megaFormCount}폼 · 스피드 특성 ${data.meta.speedAbilityPokemonCount}마리 · ${date} 동기화`;
     rankingStamp.textContent = `포케챔스 시즌 ${data.rankings.double.season} · ${data.rankings.double.updated ?? '최근 갱신'}`;
