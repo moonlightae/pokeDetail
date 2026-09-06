@@ -1,0 +1,17 @@
+{
+  "name": "poke-speed-dex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "포켓몬 최저속·최속 실능 비교 도구",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "sync:data": "node scripts/sync-pokemon-data.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^7.1.4"
+  }
+}
