@@ -192,6 +192,7 @@ type DisplayChip = {
   key: string;
   name: string;
   sprite: string;
+  mega: boolean;
   pokemonId?: number;
   pickRank?: number;
   abilityNames: string[];
@@ -247,6 +248,7 @@ function renderChart() {
         key: `pokemon-${item.id}`,
         name: item.koreanName,
         sprite: item.sprite,
+        mega: false,
         pokemonId: item.id,
         pickRank: activePreset ? pickRankById.get(item.id) : undefined,
         abilityNames: item.speedAbilities.map((ability) => ability.name),
@@ -263,13 +265,26 @@ function renderChart() {
       key: `mega-chip-${mega.id}`,
       name: `${pokemon.koreanName} · ${mega.name}`,
       sprite: mega.sprite,
+      mega: true,
       abilityNames: mega.speedAbilities.map((ability) => ability.name),
     }],
     range: calculateRange(mega.baseSpeed, level),
     tracks: abilityTracks(`${pokemon.koreanName} · ${mega.name}`, mega.baseSpeed, mega.speedAbilities, mega.sprite),
     mega: true,
   })));
-  const rows = [...baseRows, ...megaRows]
+  const rowsBySpeed = new Map<number, ChartRow>();
+  [...baseRows, ...megaRows].forEach((row) => {
+    const existing = rowsBySpeed.get(row.baseSpeed);
+    if (!existing) {
+      rowsBySpeed.set(row.baseSpeed, row);
+      return;
+    }
+    existing.key = `speed-${row.baseSpeed}`;
+    existing.chips.push(...row.chips);
+    existing.tracks.push(...row.tracks);
+    existing.mega = existing.mega && row.mega;
+  });
+  const rows = [...rowsBySpeed.values()]
     .sort((a, b) => b.baseSpeed - a.baseSpeed || Number(a.mega) - Number(b.mega));
   const everyRange = rows.flatMap((row) => [row.range, ...row.tracks.map((track) => track.range)]);
   const axisMin = Math.min(...everyRange.map((range) => range.min));
@@ -280,37 +295,20 @@ function renderChart() {
   const max = axisMax + padding;
   const domain = max - min;
   const ticks = axisTicks(min, max);
-  const extent = (row: ChartRow) => ({
-    min: Math.min(row.range.min, ...row.tracks.map((track) => track.range.min)),
-    max: Math.max(row.range.max, ...row.tracks.map((track) => track.range.max)),
-  });
-  const labelRoom = domain * 0.12;
-  const packedRows: ChartRow[][] = [];
-  rows.forEach((row) => {
-    const current = extent(row);
-    const lane = packedRows.find((items) => items.every((item) => {
-      const placed = extent(item);
-      return current.max + labelRoom < placed.min || placed.max + labelRoom < current.min;
-    }));
-    if (lane) lane.push(row);
-    else packedRows.push([row]);
-  });
-  chart.classList.toggle('dense', packedRows.length > 10 || rows.length > 20);
+  chart.classList.toggle('dense', rows.length > 10);
 
-  const lanes = packedRows.map((laneRows, laneIndex) => {
-    const maxTrackCount = Math.max(...laneRows.map((row) => row.tracks.length));
-    const segments = laneRows.map(({ key, baseSpeed, chips: rowChips, range, tracks, mega }, segmentIndex) => {
-      const color = mega ? '#aeb5c3' : COLORS[(laneIndex + segmentIndex) % COLORS.length];
+  const lanes = rows.map(({ key, baseSpeed, chips: rowChips, range, tracks, mega }, rowIndex) => {
+      const color = mega ? '#aeb5c3' : COLORS[rowIndex % COLORS.length];
       const left = ((range.min - min) / domain) * 100;
       const width = ((range.max - range.min) / domain) * 100;
       const neutralLeft = ((range.neutralMin - range.min) / Math.max(1, range.max - range.min)) * 100;
       const neutralWidth = ((range.neutralMax - range.neutralMin) / Math.max(1, range.max - range.min)) * 100;
       const chips = rowChips.map((item) => `
-        <div class="pokemon-chip${mega ? ' mega-chip' : ''}">
+        <div class="pokemon-chip${item.mega ? ' mega-chip' : ''}">
           <div class="sprite-wrap"><img src="${item.sprite}" alt="" loading="lazy" /></div>
           <div>
             <strong>${item.pickRank ? `<em>#${item.pickRank}</em>` : ''}${item.name}</strong>
-            <span>S ${baseSpeed}${mega ? ' · MEGA' : ''}${item.megaCount ? ` · MEGA ${item.megaCount}` : ''}${item.abilityNames.length ? ` · ${item.abilityNames.join('/')}` : ''}</span>
+            <span>S ${baseSpeed}${item.mega ? ' · MEGA' : ''}${item.megaCount ? ` · MEGA ${item.megaCount}` : ''}${item.abilityNames.length ? ` · ${item.abilityNames.join('/')}` : ''}</span>
           </div>
           ${item.pokemonId ? `<button class="remove-button" type="button" data-remove="${item.pokemonId}" aria-label="${item.name} 삭제">×</button>` : ''}
         </div>
@@ -331,7 +329,10 @@ function renderChart() {
           </div>
         `;
       }).join('');
+      const names = rowChips.map((chip) => chip.name).join(', ');
       return `
+      <article class="speed-lane" style="height:${82 + tracks.length * 24}px" aria-label="스피드 종족값 ${baseSpeed}: ${names}">
+        <div class="lane-line"></div>
         <div class="row-segment${mega ? ' mega-row' : ''}" data-row="${key}">
           <div class="speed-range" style="--left:${left}%; --width:${width}%; --color:${color}; --neutral-left:${neutralLeft}%; --neutral-width:${neutralWidth}%">
             <div class="range-bar"><span class="neutral-range" title="무보정 범위"></span></div>
@@ -341,13 +342,6 @@ function renderChart() {
           <div class="pokemon-group" style="left:${left}%">${chips}</div>
           ${variants}
         </div>
-      `;
-    }).join('');
-    const names = laneRows.flatMap((row) => row.chips.map((chip) => chip.name)).join(', ');
-    return `
-      <article class="speed-lane" style="height:${82 + maxTrackCount * 24}px" aria-label="같은 행: ${names}">
-        <div class="lane-line"></div>
-        ${segments}
       </article>
     `;
   }).join('');
