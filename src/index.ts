@@ -1,5 +1,5 @@
 import './styles.css';
-import { calculateRange } from './calculator';
+import { calculateRange, calculateSpeed } from './calculator';
 
 type SpeedAbility = {
   slug: string;
@@ -130,6 +130,31 @@ app.innerHTML = `
           </div>
         </div>
 
+        <section class="speed-lab" id="speed-lab" aria-labelledby="speed-lab-title" hidden>
+          <div class="speed-lab-head">
+            <div>
+              <p class="section-kicker">OVERTAKE SIMULATOR</p>
+              <h3 id="speed-lab-title">추월선 보기</h3>
+              <p>선택한 포켓몬의 EV와 성격을 바꿔 현재 목록의 최속 포켓몬들과 비교합니다.</p>
+            </div>
+            <button class="lab-close" id="lab-close" type="button" aria-label="추월선 닫기">×</button>
+          </div>
+          <div class="speed-controls">
+            <label class="ev-control" for="speed-ev">
+              <span>스피드 노력치 <output id="speed-ev-value" for="speed-ev">0</output></span>
+              <input id="speed-ev" type="range" min="0" max="252" step="4" value="0" />
+            </label>
+            <fieldset class="nature-control">
+              <legend>스피드 성격</legend>
+              <button type="button" data-nature="0.9" aria-pressed="false">하락 <small>×0.9</small></button>
+              <button class="active" type="button" data-nature="1" aria-pressed="true">무보정 <small>×1.0</small></button>
+              <button type="button" data-nature="1.1" aria-pressed="false">상승 <small>×1.1</small></button>
+            </fieldset>
+          </div>
+          <div class="speed-window" id="speed-window"></div>
+          <p class="speed-lab-note">모든 개체값은 31이며, 비교 포켓몬은 EV 252·스피드 상승 성격의 최속 기준입니다.</p>
+        </section>
+
         <div class="chart-scroll">
           <div class="chart" id="chart" aria-live="polite">
             <div class="loading-state"><span class="loader"></span>포켓몬 도감을 불러오는 중...</div>
@@ -155,6 +180,12 @@ const dataStamp = document.querySelector<HTMLSpanElement>('#data-stamp')!;
 const levelButtons = [...document.querySelectorAll<HTMLButtonElement>('.level-button')];
 const presetButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-top]')];
 const rankingStamp = document.querySelector<HTMLSpanElement>('#ranking-stamp')!;
+const speedLab = document.querySelector<HTMLElement>('#speed-lab')!;
+const speedWindow = document.querySelector<HTMLDivElement>('#speed-window')!;
+const speedEv = document.querySelector<HTMLInputElement>('#speed-ev')!;
+const speedEvValue = document.querySelector<HTMLOutputElement>('#speed-ev-value')!;
+const natureButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-nature]')];
+const labClose = document.querySelector<HTMLButtonElement>('#lab-close')!;
 
 let level = 50;
 let allPokemon: Pokemon[] = [];
@@ -164,6 +195,10 @@ let doubleRanking: Array<{ rank: number; pokemon: Pokemon }> = [];
 let pickRankById = new Map<number, number>();
 let activePreset: number | null = null;
 let manualSelectedIds = new Set<number>();
+let focusEntries: FocusEntry[] = [];
+let focusedKey: string | null = null;
+let focusEv = 0;
+let focusNature = 1;
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/[.'’\s_-]/g, '');
 
@@ -200,6 +235,14 @@ type DisplayChip = {
   megaCount?: number;
 };
 
+type FocusEntry = {
+  key: string;
+  name: string;
+  sprite: string;
+  baseSpeed: number;
+  mega: boolean;
+};
+
 type ChartRow = {
   key: string;
   baseSpeed: number;
@@ -229,8 +272,70 @@ function abilityTracks(name: string, baseSpeed: number, abilities: SpeedAbility[
   }));
 }
 
+function opponentSpeed(entry: FocusEntry) {
+  return calculateSpeed(entry.baseSpeed, level, 31, 252, 1.1);
+}
+
+function speedNeighbourMarkup(entry: FocusEntry, speed: number, targetSpeed: number) {
+  const difference = speed - targetSpeed;
+  const differenceLabel = difference === 0 ? '동속' : `${difference > 0 ? '+' : ''}${difference}`;
+  return `
+    <li class="speed-neighbour${difference === 0 ? ' tied' : ''}">
+      <img src="${entry.sprite}" alt="" loading="lazy" />
+      <span><strong>${entry.name}</strong><small>S ${entry.baseSpeed}${entry.mega ? ' · MEGA' : ''}</small></span>
+      <b>${speed}</b>
+      <em>${differenceLabel}</em>
+    </li>
+  `;
+}
+
+function renderSpeedLab() {
+  const focused = focusEntries.find((entry) => entry.key === focusedKey);
+  if (!focused) {
+    focusedKey = null;
+    speedLab.hidden = true;
+    return;
+  }
+
+  const targetSpeed = calculateSpeed(focused.baseSpeed, level, 31, focusEv, focusNature);
+  const opponents = focusEntries
+    .filter((entry) => entry.key !== focused.key)
+    .map((entry) => ({ entry, speed: opponentSpeed(entry) }));
+  const overtakenAll = opponents.filter((item) => item.speed < targetSpeed).sort((a, b) => b.speed - a.speed);
+  const aheadAll = opponents.filter((item) => item.speed >= targetSpeed).sort((a, b) => a.speed - b.speed);
+  const overtaken = overtakenAll.slice(0, 10);
+  const ahead = aheadAll.slice(0, 10);
+  const emptyList = '<li class="neighbour-empty">해당하는 포켓몬이 없어요.</li>';
+
+  speedEv.value = String(focusEv);
+  speedEvValue.value = String(focusEv);
+  speedEvValue.textContent = focusEv === 252 ? '252 (최대)' : String(focusEv);
+  speedWindow.innerHTML = `
+    <section class="neighbour-column overtaken-column" aria-label="추월한 포켓몬">
+      <div class="neighbour-title"><span>추월 완료</span><b>${overtakenAll.length}</b></div>
+      <ol>${overtaken.length ? overtaken.map(({ entry, speed }) => speedNeighbourMarkup(entry, speed, targetSpeed)).join('') : emptyList}</ol>
+    </section>
+    <article class="focus-card">
+      <span class="focus-status">현재 실능</span>
+      <img src="${focused.sprite}" alt="" />
+      <strong>${focused.name}</strong>
+      <span>S ${focused.baseSpeed}${focused.mega ? ' · MEGA' : ''}</span>
+      <b>${targetSpeed}</b>
+      <small>EV ${focusEv} · ${focusNature === 1.1 ? '상승 성격' : focusNature === 0.9 ? '하락 성격' : '무보정 성격'}</small>
+    </article>
+    <section class="neighbour-column ahead-column" aria-label="아직 빠른 포켓몬">
+      <div class="neighbour-title"><span>아직 빠름·동속</span><b>${aheadAll.length}</b></div>
+      <ol>${ahead.length ? ahead.map(({ entry, speed }) => speedNeighbourMarkup(entry, speed, targetSpeed)).join('') : emptyList}</ol>
+    </section>
+  `;
+  speedLab.hidden = false;
+}
+
 function renderChart() {
   if (!selected.length) {
+    focusEntries = [];
+    focusedKey = null;
+    speedLab.hidden = true;
     chart.innerHTML = `<div class="empty-state"><span class="empty-ball" aria-hidden="true"></span><strong>비교할 포켓몬을 추가해 주세요.</strong><span>최대 6마리까지 한 축에서 볼 수 있어요.</span></div>`;
     return;
   }
@@ -289,6 +394,14 @@ function renderChart() {
   });
   const rows = [...rowsBySpeed.values()]
     .sort((a, b) => b.baseSpeed - a.baseSpeed || Number(a.mega) - Number(b.mega));
+  focusEntries = rows.flatMap((row) => row.chips.map((chip) => ({
+    key: chip.key,
+    name: chip.name,
+    sprite: chip.sprite,
+    baseSpeed: row.baseSpeed,
+    mega: chip.mega,
+  })));
+  if (focusedKey && !focusEntries.some((entry) => entry.key === focusedKey)) focusedKey = null;
   const everyRange = rows.flatMap((row) => [row.range, ...row.tracks.map((track) => track.range)]);
   const axisMin = Math.min(...everyRange.map((range) => range.min));
   const axisMax = Math.max(...everyRange.map((range) => range.max));
@@ -307,7 +420,7 @@ function renderChart() {
       const neutralLeft = ((range.neutralMin - range.min) / Math.max(1, range.max - range.min)) * 100;
       const neutralWidth = ((range.neutralMax - range.neutralMin) / Math.max(1, range.max - range.min)) * 100;
       const chips = rowChips.map((item) => `
-        <div class="pokemon-chip${item.mega ? ' mega-chip' : ''}">
+        <div class="pokemon-chip${item.mega ? ' mega-chip' : ''}${item.key === focusedKey ? ' focused' : ''}" data-focus="${item.key}" role="button" tabindex="0" aria-label="${item.name} 추월선 보기">
           <div class="sprite-wrap"><img src="${item.sprite}" alt="" loading="lazy" /></div>
           <div>
             <strong>${item.pickRank ? `<em>#${item.pickRank}</em>` : ''}${item.name}</strong>
@@ -358,13 +471,37 @@ function renderChart() {
   `;
 
   chart.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
       const pokemonId = Number(button.dataset.remove);
       manualSelectedIds.delete(pokemonId);
       selected = selected.filter((item) => item.id !== pokemonId);
       renderChart();
     });
   });
+  chart.querySelectorAll<HTMLElement>('[data-focus]').forEach((chip) => {
+    const showFocus = () => {
+      focusedKey = chip.dataset.focus ?? null;
+      focusEv = 0;
+      focusNature = 1;
+      natureButtons.forEach((button) => {
+        const active = Number(button.dataset.nature) === focusNature;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      chart.querySelectorAll('[data-focus]').forEach((item) => item.classList.toggle('focused', item === chip));
+      renderSpeedLab();
+      speedLab.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    chip.addEventListener('click', showFocus);
+    chip.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        showFocus();
+      }
+    });
+  });
+  renderSpeedLab();
 }
 
 function findMatches(query: string, limit = 6) {
@@ -559,6 +696,29 @@ levelButtons.forEach((button) => {
 
 presetButtons.forEach((button) => {
   button.addEventListener('click', () => loadRankingPreset(Number(button.dataset.top)));
+});
+
+speedEv.addEventListener('input', () => {
+  focusEv = Number(speedEv.value);
+  renderSpeedLab();
+});
+
+natureButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    focusNature = Number(button.dataset.nature);
+    natureButtons.forEach((item) => {
+      const active = item === button;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
+    renderSpeedLab();
+  });
+});
+
+labClose.addEventListener('click', () => {
+  focusedKey = null;
+  speedLab.hidden = true;
+  chart.querySelectorAll('[data-focus]').forEach((item) => item.classList.remove('focused'));
 });
 
 async function loadPokemon() {
