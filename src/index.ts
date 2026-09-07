@@ -124,7 +124,7 @@ app.innerHTML = `
           </div>
           <div class="legend" aria-label="범위 기준">
             <span><i class="min-dot"></i>최저: 개체값 31 · 노력치 0 · 하락 성격</span>
-            <span><i class="max-dot"></i>최속: 개체값 31 · 노력치 252 · 상승 성격</span>
+            <span><i class="max-dot"></i>최속: 개체값 31 · EV 32(×8) · 상승 성격</span>
             <span><i class="mega-dot"></i>메가진화</span>
             <span><i class="ability-dot"></i>특성 발동</span>
           </div>
@@ -135,14 +135,14 @@ app.innerHTML = `
             <div>
               <p class="section-kicker">OVERTAKE SIMULATOR</p>
               <h3 id="speed-lab-title">추월선 보기</h3>
-              <p>선택한 포켓몬의 EV와 성격을 바꿔 현재 목록의 최속 포켓몬들과 비교합니다.</p>
+              <p>챔피언스 EV와 성격을 바꾸면 바로 앞뒤 5마리가 새 속도에 맞춰 교체됩니다.</p>
             </div>
             <button class="lab-close" id="lab-close" type="button" aria-label="추월선 닫기">×</button>
           </div>
           <div class="speed-controls">
             <label class="ev-control" for="speed-ev">
-              <span>스피드 노력치 <output id="speed-ev-value" for="speed-ev">0</output></span>
-              <input id="speed-ev" type="range" min="0" max="252" step="4" value="0" />
+              <span>스피드 EV <output id="speed-ev-value" for="speed-ev">0</output></span>
+              <input id="speed-ev" type="range" min="0" max="32" step="1" value="0" />
             </label>
             <fieldset class="nature-control">
               <legend>스피드 성격</legend>
@@ -152,7 +152,7 @@ app.innerHTML = `
             </fieldset>
           </div>
           <div class="speed-window" id="speed-window"></div>
-          <p class="speed-lab-note">모든 개체값은 31이며, 비교 포켓몬은 EV 252·스피드 상승 성격의 최속 기준입니다.</p>
+          <p class="speed-lab-note">모든 개체값은 31이며, 챔피언스 EV는 선택값×8로 계산합니다. 비교 포켓몬은 EV 32·스피드 상승 성격의 최속 기준입니다.</p>
         </section>
 
         <div class="chart-scroll">
@@ -163,7 +163,7 @@ app.innerHTML = `
 
         <div class="formula-strip">
           <span class="formula-label">CALCULATION</span>
-          <code>IV 31 고정 · ⌊(⌊(종족값×2 + 31 + ⌊EV/4⌋) × 레벨/100⌋ + 5) × 성격⌋</code>
+          <code>IV 31 고정 · 챔피언스 EV×8 · ⌊(⌊(종족값×2 + 31 + ⌊(EV×8)/4⌋) × 레벨/100⌋ + 5) × 성격⌋</code>
           <span id="data-stamp">로컬 데이터 준비 중</span>
         </div>
       </section>
@@ -273,7 +273,7 @@ function abilityTracks(name: string, baseSpeed: number, abilities: SpeedAbility[
 }
 
 function opponentSpeed(entry: FocusEntry) {
-  return calculateSpeed(entry.baseSpeed, level, 31, 252, 1.1);
+  return calculateSpeed(entry.baseSpeed, level, 31, 32 * 8, 1.1);
 }
 
 function speedNeighbourMarkup(entry: FocusEntry, speed: number, targetSpeed: number) {
@@ -297,34 +297,41 @@ function renderSpeedLab() {
     return;
   }
 
-  const targetSpeed = calculateSpeed(focused.baseSpeed, level, 31, focusEv, focusNature);
+  const targetSpeed = calculateSpeed(focused.baseSpeed, level, 31, focusEv * 8, focusNature);
   const opponents = focusEntries
     .filter((entry) => entry.key !== focused.key)
     .map((entry) => ({ entry, speed: opponentSpeed(entry) }));
   const overtakenAll = opponents.filter((item) => item.speed < targetSpeed).sort((a, b) => b.speed - a.speed);
-  const aheadAll = opponents.filter((item) => item.speed >= targetSpeed).sort((a, b) => a.speed - b.speed);
-  const overtaken = overtakenAll.slice(0, 10);
-  const ahead = aheadAll.slice(0, 10);
+  const tiedAll = opponents.filter((item) => item.speed === targetSpeed);
+  const aheadAll = opponents.filter((item) => item.speed > targetSpeed).sort((a, b) => a.speed - b.speed);
+  const overtaken = overtakenAll.slice(0, 5);
+  const ahead = aheadAll.slice(0, 5);
   const emptyList = '<li class="neighbour-empty">해당하는 포켓몬이 없어요.</li>';
 
   speedEv.value = String(focusEv);
   speedEvValue.value = String(focusEv);
-  speedEvValue.textContent = focusEv === 252 ? '252 (최대)' : String(focusEv);
+  speedEvValue.textContent = focusEv === 32 ? '32 (최대)' : String(focusEv);
   speedWindow.innerHTML = `
     <section class="neighbour-column overtaken-column" aria-label="추월한 포켓몬">
-      <div class="neighbour-title"><span>추월 완료</span><b>${overtakenAll.length}</b></div>
+      <div class="neighbour-title"><span>바로 뒤 · 추월 완료</span><b>${overtaken.length}/5</b></div>
       <ol>${overtaken.length ? overtaken.map(({ entry, speed }) => speedNeighbourMarkup(entry, speed, targetSpeed)).join('') : emptyList}</ol>
     </section>
-    <article class="focus-card">
-      <span class="focus-status">현재 실능</span>
-      <img src="${focused.sprite}" alt="" />
-      <strong>${focused.name}</strong>
-      <span>S ${focused.baseSpeed}${focused.mega ? ' · MEGA' : ''}</span>
-      <b>${targetSpeed}</b>
-      <small>EV ${focusEv} · ${focusNature === 1.1 ? '상승 성격' : focusNature === 0.9 ? '하락 성격' : '무보정 성격'}</small>
-    </article>
+    <div class="focus-column">
+      <article class="focus-card">
+        <span class="focus-status">현재 실능</span>
+        <img src="${focused.sprite}" alt="" />
+        <strong>${focused.name}</strong>
+        <span>S ${focused.baseSpeed}${focused.mega ? ' · MEGA' : ''}</span>
+        <b>${targetSpeed}</b>
+        <small>EV ${focusEv} (실계산 ${focusEv * 8}) · ${focusNature === 1.1 ? '상승 성격' : focusNature === 0.9 ? '하락 성격' : '무보정 성격'}</small>
+      </article>
+      <section class="tied-group" aria-label="동속 포켓몬">
+        <div class="tied-title"><span>동속</span><b>${tiedAll.length}</b></div>
+        <ol>${tiedAll.length ? tiedAll.map(({ entry, speed }) => speedNeighbourMarkup(entry, speed, targetSpeed)).join('') : '<li class="neighbour-empty">동속 포켓몬이 없어요.</li>'}</ol>
+      </section>
+    </div>
     <section class="neighbour-column ahead-column" aria-label="아직 빠른 포켓몬">
-      <div class="neighbour-title"><span>아직 빠름·동속</span><b>${aheadAll.length}</b></div>
+      <div class="neighbour-title"><span>바로 앞 · 아직 빠름</span><b>${ahead.length}/5</b></div>
       <ol>${ahead.length ? ahead.map(({ entry, speed }) => speedNeighbourMarkup(entry, speed, targetSpeed)).join('') : emptyList}</ol>
     </section>
   `;

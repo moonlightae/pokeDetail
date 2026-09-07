@@ -183,6 +183,7 @@ h2 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
 .speed-neighbour.tied { background: #fff7df; }
 .speed-neighbour.tied em { color: #b47b09; }
 .neighbour-empty { padding: 24px 10px; color: #929bad; text-align: center; font-size: 12px; }
+.focus-column { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .focus-card { min-height: 224px; display: flex; align-items: center; flex-direction: column; justify-content: center; padding: 18px; border-radius: 20px; background: var(--ink); color: white; box-shadow: 0 16px 32px rgba(23,33,59,.2); text-align: center; }
 .focus-status { color: #9fb7ff; font: 800 10px/1 'Manrope', sans-serif; letter-spacing: .12em; }
 .focus-card img { width: 76px; height: 76px; margin: 7px 0 2px; object-fit: contain; }
@@ -190,6 +191,14 @@ h2 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
 .focus-card > span:not(.focus-status) { margin-top: 3px; color: #b8c3da; font: 700 11px/1 'Manrope', sans-serif; }
 .focus-card > b { margin-top: 14px; font: 800 34px/1 'Manrope', sans-serif; }
 .focus-card small { margin-top: 7px; color: #b8c3da; font-size: 11px; }
+.tied-group { overflow: hidden; padding: 10px; border: 1px solid #eadcae; border-radius: 14px; background: #fffaf0; }
+.tied-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #8b681d; font-size: 12px; font-weight: 800; }
+.tied-title b { min-width: 24px; height: 20px; display: grid; place-items: center; border-radius: 10px; background: #f5e8bd; font: 800 10px/1 'Manrope', sans-serif; }
+.tied-group ol { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.tied-group .speed-neighbour { grid-template-columns: 34px minmax(0, 1fr) auto; padding-right: 7px; background: #fffdf8; }
+.tied-group .speed-neighbour img { width: 34px; height: 34px; }
+.tied-group .speed-neighbour em { display: none; }
+.tied-group .speed-neighbour b { color: #a36f0a; }
 .speed-lab-note { margin: 14px 0 0; color: #7f899d; text-align: center; font-size: 12px; }
 
 .chart-scroll { overflow-x: auto; }
@@ -322,7 +331,8 @@ h2 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
   .nature-control { width: 100%; }
   .nature-control button { min-width: 0; flex: 1; }
   .speed-window { display: flex; flex-direction: column; }
-  .focus-card { order: -1; width: 100%; min-height: 205px; }
+  .focus-column { order: -1; width: 100%; }
+  .focus-card { width: 100%; min-height: 205px; }
   .neighbour-column { width: 100%; }
   .formula-strip { padding: 14px 20px; flex-wrap: wrap; }
   .formula-strip code { order: 3; width: 100%; overflow-x: auto; white-space: nowrap; }
