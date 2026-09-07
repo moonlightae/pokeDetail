@@ -122,11 +122,14 @@ app.innerHTML = `
             <p class="section-kicker">CURRENT LINE-UP</p>
             <h2 id="comparison-title">스피드 범위</h2>
           </div>
-          <div class="legend" aria-label="범위 기준">
-            <span><i class="min-dot"></i>최저: 개체값 31 · 노력치 0 · 하락 성격</span>
-            <span><i class="max-dot"></i>최속: 개체값 31 · EV 32(×8) · 상승 성격</span>
-            <span><i class="mega-dot"></i>메가진화</span>
-            <span><i class="ability-dot"></i>특성 발동</span>
+          <div class="comparison-tools">
+            <button class="trick-room-toggle" id="trick-room-toggle" type="button" aria-pressed="false"><i aria-hidden="true">↔</i>트릭룸</button>
+            <div class="legend" aria-label="범위 기준">
+              <span><i class="min-dot"></i>최저: 개체값 31 · 노력치 0 · 하락 성격</span>
+              <span><i class="max-dot"></i>최속: 개체값 31 · EV 32(×8) · 상승 성격</span>
+              <span><i class="mega-dot"></i>메가진화</span>
+              <span><i class="ability-dot"></i>특성 발동</span>
+            </div>
           </div>
         </div>
 
@@ -152,7 +155,7 @@ app.innerHTML = `
             </fieldset>
           </div>
           <div class="speed-window" id="speed-window"></div>
-          <p class="speed-lab-note">모든 개체값은 31이며, 챔피언스 EV는 선택값×8로 계산합니다. 비교 포켓몬은 EV 32·스피드 상승 성격의 최속 기준입니다.</p>
+          <p class="speed-lab-note" id="speed-lab-note">모든 개체값은 31이며, 챔피언스 EV는 선택값×8로 계산합니다. 비교 포켓몬은 EV 32·스피드 상승 성격의 최속 기준입니다.</p>
         </section>
 
         <div class="chart-scroll">
@@ -186,6 +189,8 @@ const speedEv = document.querySelector<HTMLInputElement>('#speed-ev')!;
 const speedEvValue = document.querySelector<HTMLOutputElement>('#speed-ev-value')!;
 const natureButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-nature]')];
 const labClose = document.querySelector<HTMLButtonElement>('#lab-close')!;
+const speedLabNote = document.querySelector<HTMLParagraphElement>('#speed-lab-note')!;
+const trickRoomButton = document.querySelector<HTMLButtonElement>('#trick-room-toggle')!;
 
 let level = 50;
 let allPokemon: Pokemon[] = [];
@@ -199,6 +204,7 @@ let focusEntries: FocusEntry[] = [];
 let focusedKey: string | null = null;
 let focusEv = 0;
 let focusNature = 1;
+let trickRoom = false;
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/[.'’\s_-]/g, '');
 
@@ -273,7 +279,9 @@ function abilityTracks(name: string, baseSpeed: number, abilities: SpeedAbility[
 }
 
 function opponentSpeed(entry: FocusEntry) {
-  return calculateSpeed(entry.baseSpeed, level, 31, 32 * 8, 1.1);
+  return trickRoom
+    ? calculateSpeed(entry.baseSpeed, level, 31, 0, 0.9)
+    : calculateSpeed(entry.baseSpeed, level, 31, 32 * 8, 1.1);
 }
 
 function speedNeighbourMarkup(entry: FocusEntry, speed: number, targetSpeed: number) {
@@ -301,9 +309,13 @@ function renderSpeedLab() {
   const opponents = focusEntries
     .filter((entry) => entry.key !== focused.key)
     .map((entry) => ({ entry, speed: opponentSpeed(entry) }));
-  const overtakenAll = opponents.filter((item) => item.speed < targetSpeed).sort((a, b) => b.speed - a.speed);
+  const overtakenAll = opponents
+    .filter((item) => trickRoom ? item.speed > targetSpeed : item.speed < targetSpeed)
+    .sort((a, b) => trickRoom ? a.speed - b.speed : b.speed - a.speed);
   const tiedAll = opponents.filter((item) => item.speed === targetSpeed);
-  const aheadAll = opponents.filter((item) => item.speed > targetSpeed).sort((a, b) => a.speed - b.speed);
+  const aheadAll = opponents
+    .filter((item) => trickRoom ? item.speed < targetSpeed : item.speed > targetSpeed)
+    .sort((a, b) => trickRoom ? b.speed - a.speed : a.speed - b.speed);
   const overtaken = overtakenAll.slice(0, 5);
   const ahead = aheadAll.slice(0, 5);
   const emptyList = '<li class="neighbour-empty">해당하는 포켓몬이 없어요.</li>';
@@ -311,6 +323,9 @@ function renderSpeedLab() {
   speedEv.value = String(focusEv);
   speedEvValue.value = String(focusEv);
   speedEvValue.textContent = focusEv === 32 ? '32 (최대)' : String(focusEv);
+  speedLabNote.textContent = trickRoom
+    ? '트릭룸: 더 낮은 스피드가 먼저 움직입니다. 비교 포켓몬은 IV 31·EV 0·하락 성격의 최저속 기준입니다.'
+    : '일반 순서: 더 높은 스피드가 먼저 움직입니다. 비교 포켓몬은 IV 31·EV 32(×8)·상승 성격의 최속 기준입니다.';
   speedWindow.innerHTML = `
     <section class="neighbour-column overtaken-column" aria-label="추월한 포켓몬">
       <div class="neighbour-title"><span>바로 뒤 · 추월 완료</span><b>${overtaken.length}/5</b></div>
@@ -418,14 +433,22 @@ function renderChart() {
   const max = axisMax + padding;
   const domain = max - min;
   const ticks = axisTicks(min, max);
+  const position = (value: number) => ((trickRoom ? max - value : value - min) / domain) * 100;
   chart.classList.toggle('dense', rows.length > 10);
+  chart.classList.toggle('trick-room', trickRoom);
 
   const lanes = rows.map(({ key, baseSpeed, chips: rowChips, range, tracks, mega }, rowIndex) => {
       const color = mega ? '#aeb5c3' : COLORS[rowIndex % COLORS.length];
-      const left = ((range.min - min) / domain) * 100;
-      const width = ((range.max - range.min) / domain) * 100;
-      const neutralLeft = ((range.neutralMin - range.min) / Math.max(1, range.max - range.min)) * 100;
-      const neutralWidth = ((range.neutralMax - range.neutralMin) / Math.max(1, range.max - range.min)) * 100;
+      const rangeMinPosition = position(range.min);
+      const rangeMaxPosition = position(range.max);
+      const left = Math.min(rangeMinPosition, rangeMaxPosition);
+      const width = Math.abs(rangeMaxPosition - rangeMinPosition);
+      const neutralMinPosition = position(range.neutralMin);
+      const neutralMaxPosition = position(range.neutralMax);
+      const neutralLeft = ((Math.min(neutralMinPosition, neutralMaxPosition) - left) / Math.max(.001, width)) * 100;
+      const neutralWidth = (Math.abs(neutralMaxPosition - neutralMinPosition) / Math.max(.001, width)) * 100;
+      const leftValue = trickRoom ? range.max : range.min;
+      const rightValue = trickRoom ? range.min : range.max;
       const chips = rowChips.map((item) => `
         <div class="pokemon-chip${item.mega ? ' mega-chip' : ''}${item.key === focusedKey ? ' focused' : ''}" data-focus="${item.key}" role="button" tabindex="0" aria-label="${item.name} 추월선 보기">
           <div class="sprite-wrap"><img src="${item.sprite}" alt="" loading="lazy" /></div>
@@ -437,13 +460,17 @@ function renderChart() {
         </div>
       `).join('');
       const variants = tracks.map((track, index) => {
-        const trackLeft = ((track.range.min - min) / domain) * 100;
-        const trackWidth = ((track.range.max - track.range.min) / domain) * 100;
+        const trackMinPosition = position(track.range.min);
+        const trackMaxPosition = position(track.range.max);
+        const trackLeft = Math.min(trackMinPosition, trackMaxPosition);
+        const trackWidth = Math.abs(trackMaxPosition - trackMinPosition);
+        const trackLeftValue = trickRoom ? track.range.max : track.range.min;
+        const trackRightValue = trickRoom ? track.range.min : track.range.max;
         return `
           <div class="variant-track ${track.kind}" style="--track-left:${trackLeft}%; --track-width:${trackWidth}%; top:${70 + index * 24}px">
             <div class="variant-line"></div>
-            <span class="variant-min">${track.range.min}</span>
-            <span class="variant-max">${track.range.max}</span>
+            <span class="variant-min">${trackLeftValue}</span>
+            <span class="variant-max">${trackRightValue}</span>
             <div class="variant-label">
               ${track.sprite ? `<img src="${track.sprite}" alt="" loading="lazy" />` : '<i aria-hidden="true"></i>'}
               <strong>${track.label}</strong>
@@ -459,8 +486,8 @@ function renderChart() {
         <div class="row-segment${mega ? ' mega-row' : ''}" data-row="${key}">
           <div class="speed-range" style="--left:${left}%; --width:${width}%; --color:${color}; --neutral-left:${neutralLeft}%; --neutral-width:${neutralWidth}%">
             <div class="range-bar"><span class="neutral-range" title="무보정 범위"></span></div>
-            <span class="range-value range-min">${range.min}</span>
-            <span class="range-value range-max">${range.max}</span>
+            <span class="range-value range-min">${leftValue}</span>
+            <span class="range-value range-max">${rightValue}</span>
           </div>
           <div class="pokemon-group" style="left:${left}%">${chips}</div>
           ${variants}
@@ -472,9 +499,9 @@ function renderChart() {
   chart.innerHTML = `
     <div class="lanes">${lanes}</div>
     <div class="axis" aria-hidden="true">
-      ${ticks.map((tick, index) => `<span style="left:${(index / (ticks.length - 1)) * 100}%"><i></i><b>${tick}</b></span>`).join('')}
+      ${ticks.map((tick, index) => `<span style="left:${(index / (ticks.length - 1)) * 100}%"><i></i><b>${trickRoom ? ticks[ticks.length - 1 - index] : tick}</b></span>`).join('')}
     </div>
-    <p class="axis-caption">SPEED STAT · LEVEL ${level}</p>
+    <p class="axis-caption">${trickRoom ? 'TRICK ROOM · LOWER SPEED MOVES FIRST' : 'SPEED STAT'} · LEVEL ${level}</p>
   `;
 
   chart.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((button) => {
@@ -699,6 +726,13 @@ levelButtons.forEach((button) => {
     levelButtons.forEach((item) => item.classList.toggle('active', item === button));
     renderChart();
   });
+});
+
+trickRoomButton.addEventListener('click', () => {
+  trickRoom = !trickRoom;
+  trickRoomButton.classList.toggle('active', trickRoom);
+  trickRoomButton.setAttribute('aria-pressed', String(trickRoom));
+  renderChart();
 });
 
 presetButtons.forEach((button) => {

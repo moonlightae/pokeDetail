@@ -141,6 +141,12 @@ h1 { margin: 0; font-size: clamp(32px, 4vw, 52px); line-height: 1.16; letter-spa
 .comparison-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; padding: 26px 30px 22px; border-bottom: 1px solid #e8ecf3; }
 .section-kicker { margin-bottom: 7px; font-size: 10px; }
 h2 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
+.comparison-tools { display: flex; align-items: flex-end; flex-direction: column; gap: 12px; }
+.trick-room-toggle { height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid #cfd7e6; border-radius: 10px; background: white; color: #59647a; font-size: 12px; font-weight: 800; transition: border-color .15s, background .15s, color .15s, box-shadow .15s; }
+.trick-room-toggle i { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; background: #edf0f6; font: 800 13px/1 'Manrope', sans-serif; font-style: normal; }
+.trick-room-toggle:hover { border-color: #7964cf; color: #5944ad; }
+.trick-room-toggle.active { border-color: #6650bd; background: #6650bd; color: white; box-shadow: 0 6px 16px rgba(102,80,189,.24); }
+.trick-room-toggle.active i { background: rgba(255,255,255,.18); }
 .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 22px; color: var(--muted); font-size: 12px; }
 .legend span { display: inline-flex; align-items: center; gap: 7px; }
 .legend i { width: 7px; height: 7px; border-radius: 50%; }
@@ -237,6 +243,8 @@ h2 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
 .range-value { position: absolute; top: 55px; color: var(--muted); font: 700 10px/1 'Manrope', sans-serif; }
 .range-min { left: 0; transform: translateX(-50%); }
 .range-max { left: 100%; transform: translateX(-50%); color: var(--color); }
+.chart.trick-room .range-min { color: var(--color); }
+.chart.trick-room .range-max { color: var(--muted); }
 .remove-button {
   width: 23px; height: 23px; flex: 0 0 23px; display: grid; place-items: center;
   border: 0; border-radius: 50%; background: #f0f2f6; color: #7b8496; font-size: 17px; line-height: 1; transition: background .15s, color .15s;
@@ -305,6 +313,7 @@ h2 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
 @media (max-width: 860px) {
   .intro { grid-template-columns: 1fr; gap: 28px; padding: 38px 0; }
   .comparison-head { align-items: flex-start; flex-direction: column; }
+  .comparison-tools { align-items: flex-start; }
   .legend { justify-content: flex-start; }
   .ranking-presets { margin-top: 0; flex-wrap: wrap; }
   .ranking-stamp { width: 100%; margin-left: 0; }
