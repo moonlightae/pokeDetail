@@ -1,0 +1,97 @@
+<div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Speed Dex 홈">
+        <span class="brand-mark" aria-hidden="true"><i></i></span>
+        <span>SPEED<span>/DEX</span></span>
+      </a>
+      <div class="level-control" aria-label="포켓몬 레벨">
+        <span>LEVEL</span>
+        <button class="level-button active" type="button" data-level="50">50</button>
+        <button class="level-button" type="button" data-level="100">100</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">SPEED RANGE COMPARATOR</p>
+          <h1 id="page-title">누가 먼저 움직일까?</h1>
+          <p class="lede">포켓몬을 눌러 노력치/성격에 따른 타 포켓몬 추월 여부를 확인하세요!</p>
+        </div>
+
+        <form class="search" id="search-form" autocomplete="off">
+          <div class="search-field">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg>
+            <input id="pokemon-input" name="pokemon" type="search" placeholder="포켓몬 이름을 입력하세요" aria-label="포켓몬 이름" aria-controls="suggestions" aria-expanded="false" />
+            <button type="submit">추가</button>
+          </div>
+          <div class="suggestions" id="suggestions" role="listbox" hidden></div>
+          <p class="search-message" id="search-message" aria-live="polite">한국어·영어 이름 또는 도감 번호로 찾을 수 있어요.</p>
+        </form>
+        <div class="ranking-presets" aria-label="더블배틀 픽률 프리셋">
+          <div class="preset-label"><span>DOUBLE PICK</span><b>픽률 순위 한 번에 보기</b></div>
+          <div class="preset-buttons">
+            <button type="button" data-top="20" aria-pressed="false">TOP 20</button>
+            <button type="button" data-top="50" aria-pressed="false">TOP 50</button>
+            <button type="button" data-top="100" aria-pressed="false">TOP 100</button>
+          </div>
+          <span class="ranking-stamp" id="ranking-stamp">포케챔스 순위 준비 중</span>
+        </div>
+      </section>
+
+      <section class="comparison" aria-labelledby="comparison-title">
+        <div class="comparison-head">
+          <div>
+            <p class="section-kicker">CURRENT LINE-UP</p>
+            <h2 id="comparison-title">스피드 범위</h2>
+          </div>
+          <div class="comparison-tools">
+            <button class="trick-room-toggle" id="trick-room-toggle" type="button" aria-pressed="false"><i aria-hidden="true">↔</i>트릭룸</button>
+            <div class="legend" aria-label="범위 기준">
+              <span><i class="min-dot"></i>최저: 개체값 31 · 노력치 0 · 하락 성격</span>
+              <span><i class="max-dot"></i>최속: 개체값 31 · EV 32(×8) · 상승 성격</span>
+              <span><i class="mega-dot"></i>메가진화</span>
+              <span><i class="ability-dot"></i>특성 발동</span>
+            </div>
+          </div>
+        </div>
+
+        <section class="speed-lab" id="speed-lab" aria-labelledby="speed-lab-title" hidden>
+          <div class="speed-lab-head">
+            <div>
+              <p class="section-kicker">OVERTAKE SIMULATOR</p>
+              <h3 id="speed-lab-title">추월선 보기</h3>
+              <p>챔피언스 EV와 성격을 바꾸면 바로 앞뒤 5마리가 새 속도에 맞춰 교체됩니다.</p>
+            </div>
+            <button class="lab-close" id="lab-close" type="button" aria-label="추월선 닫기">×</button>
+          </div>
+          <div class="speed-controls">
+            <label class="ev-control" for="speed-ev">
+              <span>스피드 EV <output id="speed-ev-value" for="speed-ev">0</output></span>
+              <input id="speed-ev" type="range" min="0" max="32" step="1" value="0" />
+            </label>
+            <fieldset class="nature-control">
+              <legend>스피드 성격</legend>
+              <button type="button" data-nature="0.9" aria-pressed="false">하락 <small>×0.9</small></button>
+              <button class="active" type="button" data-nature="1" aria-pressed="true">무보정 <small>×1.0</small></button>
+              <button type="button" data-nature="1.1" aria-pressed="false">상승 <small>×1.1</small></button>
+            </fieldset>
+          </div>
+          <div class="speed-window" id="speed-window"></div>
+          <p class="speed-lab-note" id="speed-lab-note">모든 개체값은 31이며, 챔피언스 EV는 선택값×8로 계산합니다. 비교 포켓몬은 EV 32·스피드 상승 성격의 최속 기준입니다.</p>
+        </section>
+
+        <div class="chart-scroll">
+          <div class="chart" id="chart" aria-live="polite">
+            <div class="loading-state"><span class="loader"></span>포켓몬 도감을 불러오는 중...</div>
+          </div>
+        </div>
+
+        <div class="formula-strip">
+          <span class="formula-label">CALCULATION</span>
+          <code>IV 31 고정 · 챔피언스 EV×8 · ⌊(⌊(종족값×2 + 31 + ⌊(EV×8)/4⌋) × 레벨/100⌋ + 5) × 성격⌋</code>
+          <span id="data-stamp">로컬 데이터 준비 중</span>
+        </div>
+      </section>
+    </main>
+  </div>

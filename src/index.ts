@@ -1,72 +1,9 @@
 import './styles.css';
-import { calculateRange, calculateSpeed } from './calculator';
-
-type SpeedAbility = {
-  slug: string;
-  name: string;
-  factor: number;
-  condition: string;
-  hidden: boolean;
-};
-
-type MegaForm = {
-  id: number;
-  slug: string;
-  name: string;
-  baseSpeed: number;
-  sprite: string;
-  speedAbilities: SpeedAbility[];
-};
-
-type Pokemon = {
-  id: number;
-  slug: string;
-  koreanName: string;
-  englishName: string;
-  baseSpeed: number;
-  sprite: string;
-  speedAbilities: SpeedAbility[];
-  megaForms: MegaForm[];
-};
-
-type PokemonData = {
-  meta: {
-    generatedAt: string;
-    source: string;
-    sourceUrl: string;
-    count: number;
-    megaFormCount: number;
-    speedAbilityPokemonCount: number;
-  };
-  rankings: {
-    double: {
-      source: string;
-      sourceUrl: string;
-      season: string;
-      updated: string | null;
-      regulation: string | null;
-      rows: Array<{ rank: number; pokemon: Pokemon }>;
-    };
-  };
-  pokemon: Pokemon[];
-};
-
-type WebMcpTool = {
-  name: string;
-  title: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  annotations: { readOnlyHint: boolean; untrustedContentHint: boolean };
-  execute: (input: unknown) => unknown | Promise<unknown>;
-};
-
-declare global {
-  interface Document {
-    readonly modelContext?: {
-      registerTool(tool: WebMcpTool, options?: { signal?: AbortSignal }): void | Promise<void>;
-    };
-  }
-}
+import { calculateSpeed } from './calculator';
+import appMarkup from './app.html?raw';
+import { findMatches, loadPokemonData, normalize, type Pokemon } from './pokemon';
+import { buildChartRows, findSpeedNeighbours, type FocusEntry } from './comparison';
+import { registerWebMcpTool } from './webmcp';
 
 const COLORS = ['#3568f0', '#f05454', '#20a86b', '#8e5ad7', '#eb8a21', '#0f8ea8'];
 const INITIAL_IDS = [25, 445, 149, 887];
@@ -74,105 +11,7 @@ const INITIAL_IDS = [25, 445, 149, 887];
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('앱 컨테이너를 찾지 못했습니다.');
 
-app.innerHTML = `
-  <div class="app-shell">
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Speed Dex 홈">
-        <span class="brand-mark" aria-hidden="true"><i></i></span>
-        <span>SPEED<span>/DEX</span></span>
-      </a>
-      <div class="level-control" aria-label="포켓몬 레벨">
-        <span>LEVEL</span>
-        <button class="level-button active" type="button" data-level="50">50</button>
-        <button class="level-button" type="button" data-level="100">100</button>
-      </div>
-    </header>
-
-    <main>
-      <section class="intro" aria-labelledby="page-title">
-        <div>
-          <p class="eyebrow">SPEED RANGE COMPARATOR</p>
-          <h1 id="page-title">누가 먼저 움직일까?</h1>
-          <p class="lede">포켓몬을 추가하면 최저속부터 최속까지, 같은 눈금 위에서 바로 비교해 드려요.</p>
-        </div>
-
-        <form class="search" id="search-form" autocomplete="off">
-          <div class="search-field">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg>
-            <input id="pokemon-input" name="pokemon" type="search" placeholder="포켓몬 이름을 입력하세요" aria-label="포켓몬 이름" aria-controls="suggestions" aria-expanded="false" />
-            <button type="submit">추가</button>
-          </div>
-          <div class="suggestions" id="suggestions" role="listbox" hidden></div>
-          <p class="search-message" id="search-message" aria-live="polite">한국어·영어 이름 또는 도감 번호로 찾을 수 있어요.</p>
-        </form>
-        <div class="ranking-presets" aria-label="더블배틀 픽률 프리셋">
-          <div class="preset-label"><span>DOUBLE PICK</span><b>픽률 순위 한 번에 보기</b></div>
-          <div class="preset-buttons">
-            <button type="button" data-top="20" aria-pressed="false">TOP 20</button>
-            <button type="button" data-top="50" aria-pressed="false">TOP 50</button>
-            <button type="button" data-top="100" aria-pressed="false">TOP 100</button>
-          </div>
-          <span class="ranking-stamp" id="ranking-stamp">포케챔스 순위 준비 중</span>
-        </div>
-      </section>
-
-      <section class="comparison" aria-labelledby="comparison-title">
-        <div class="comparison-head">
-          <div>
-            <p class="section-kicker">CURRENT LINE-UP</p>
-            <h2 id="comparison-title">스피드 범위</h2>
-          </div>
-          <div class="comparison-tools">
-            <button class="trick-room-toggle" id="trick-room-toggle" type="button" aria-pressed="false"><i aria-hidden="true">↔</i>트릭룸</button>
-            <div class="legend" aria-label="범위 기준">
-              <span><i class="min-dot"></i>최저: 개체값 31 · 노력치 0 · 하락 성격</span>
-              <span><i class="max-dot"></i>최속: 개체값 31 · EV 32(×8) · 상승 성격</span>
-              <span><i class="mega-dot"></i>메가진화</span>
-              <span><i class="ability-dot"></i>특성 발동</span>
-            </div>
-          </div>
-        </div>
-
-        <section class="speed-lab" id="speed-lab" aria-labelledby="speed-lab-title" hidden>
-          <div class="speed-lab-head">
-            <div>
-              <p class="section-kicker">OVERTAKE SIMULATOR</p>
-              <h3 id="speed-lab-title">추월선 보기</h3>
-              <p>챔피언스 EV와 성격을 바꾸면 바로 앞뒤 5마리가 새 속도에 맞춰 교체됩니다.</p>
-            </div>
-            <button class="lab-close" id="lab-close" type="button" aria-label="추월선 닫기">×</button>
-          </div>
-          <div class="speed-controls">
-            <label class="ev-control" for="speed-ev">
-              <span>스피드 EV <output id="speed-ev-value" for="speed-ev">0</output></span>
-              <input id="speed-ev" type="range" min="0" max="32" step="1" value="0" />
-            </label>
-            <fieldset class="nature-control">
-              <legend>스피드 성격</legend>
-              <button type="button" data-nature="0.9" aria-pressed="false">하락 <small>×0.9</small></button>
-              <button class="active" type="button" data-nature="1" aria-pressed="true">무보정 <small>×1.0</small></button>
-              <button type="button" data-nature="1.1" aria-pressed="false">상승 <small>×1.1</small></button>
-            </fieldset>
-          </div>
-          <div class="speed-window" id="speed-window"></div>
-          <p class="speed-lab-note" id="speed-lab-note">모든 개체값은 31이며, 챔피언스 EV는 선택값×8로 계산합니다. 비교 포켓몬은 EV 32·스피드 상승 성격의 최속 기준입니다.</p>
-        </section>
-
-        <div class="chart-scroll">
-          <div class="chart" id="chart" aria-live="polite">
-            <div class="loading-state"><span class="loader"></span>포켓몬 도감을 불러오는 중...</div>
-          </div>
-        </div>
-
-        <div class="formula-strip">
-          <span class="formula-label">CALCULATION</span>
-          <code>IV 31 고정 · 챔피언스 EV×8 · ⌊(⌊(종족값×2 + 31 + ⌊(EV×8)/4⌋) × 레벨/100⌋ + 5) × 성격⌋</code>
-          <span id="data-stamp">로컬 데이터 준비 중</span>
-        </div>
-      </section>
-    </main>
-  </div>
-`;
+app.innerHTML = appMarkup;
 
 const form = document.querySelector<HTMLFormElement>('#search-form')!;
 const input = document.querySelector<HTMLInputElement>('#pokemon-input')!;
@@ -191,6 +30,7 @@ const natureButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-na
 const labClose = document.querySelector<HTMLButtonElement>('#lab-close')!;
 const speedLabNote = document.querySelector<HTMLParagraphElement>('#speed-lab-note')!;
 const trickRoomButton = document.querySelector<HTMLButtonElement>('#trick-room-toggle')!;
+const dataControls = [...document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#search-form input, #search-form button, .level-button, [data-top], #trick-room-toggle')];
 
 let level = 50;
 let allPokemon: Pokemon[] = [];
@@ -206,82 +46,9 @@ let focusEv = 0;
 let focusNature = 1;
 let trickRoom = false;
 
-const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/[.'’\s_-]/g, '');
-
-function buildIndex(pokemon: Pokemon[]) {
-  const index = new Map<string, Pokemon>();
-  pokemon.forEach((item) => {
-    [item.koreanName, item.englishName, item.slug, String(item.id)].forEach((key) => index.set(normalize(key), item));
-  });
-  return index;
-}
-
 function axisTicks(min: number, max: number, count = 6) {
   const span = Math.max(1, max - min);
   return Array.from({ length: count }, (_, index) => Math.round(min + (span * index) / (count - 1)));
-}
-
-type SpeedRange = ReturnType<typeof calculateRange>;
-type VariantTrack = {
-  kind: 'ability';
-  label: string;
-  detail: string;
-  range: SpeedRange;
-  sprite?: string;
-};
-
-type DisplayChip = {
-  key: string;
-  name: string;
-  sprite: string;
-  mega: boolean;
-  pokemonId?: number;
-  pickRank?: number;
-  abilityNames: string[];
-  megaCount?: number;
-};
-
-type FocusEntry = {
-  key: string;
-  name: string;
-  sprite: string;
-  baseSpeed: number;
-  mega: boolean;
-};
-
-type ChartRow = {
-  key: string;
-  baseSpeed: number;
-  chips: DisplayChip[];
-  range: SpeedRange;
-  tracks: VariantTrack[];
-  mega: boolean;
-};
-
-function boostedRange(range: SpeedRange, factor: number): SpeedRange {
-  return {
-    min: Math.floor(range.min * factor),
-    neutralMin: Math.floor(range.neutralMin * factor),
-    neutralMax: Math.floor(range.neutralMax * factor),
-    max: Math.floor(range.max * factor),
-  };
-}
-
-function abilityTracks(name: string, baseSpeed: number, abilities: SpeedAbility[], sprite?: string): VariantTrack[] {
-  const baseRange = calculateRange(baseSpeed, level);
-  return abilities.map((ability) => ({
-    kind: 'ability' as const,
-    label: `${name} · ${ability.name}${ability.hidden ? ' (숨겨진 특성)' : ''}`,
-    detail: `${ability.condition} · ×${ability.factor}`,
-    range: boostedRange(baseRange, ability.factor),
-    sprite,
-  }));
-}
-
-function opponentSpeed(entry: FocusEntry) {
-  return trickRoom
-    ? calculateSpeed(entry.baseSpeed, level, 31, 0, 0.9)
-    : calculateSpeed(entry.baseSpeed, level, 31, 32 * 8, 1.1);
 }
 
 function speedNeighbourMarkup(entry: FocusEntry, speed: number, targetSpeed: number) {
@@ -306,18 +73,7 @@ function renderSpeedLab() {
   }
 
   const targetSpeed = calculateSpeed(focused.baseSpeed, level, 31, focusEv * 8, focusNature);
-  const opponents = focusEntries
-    .filter((entry) => entry.key !== focused.key)
-    .map((entry) => ({ entry, speed: opponentSpeed(entry) }));
-  const overtakenAll = opponents
-    .filter((item) => trickRoom ? item.speed > targetSpeed : item.speed < targetSpeed)
-    .sort((a, b) => trickRoom ? a.speed - b.speed : b.speed - a.speed);
-  const tiedAll = opponents.filter((item) => item.speed === targetSpeed);
-  const aheadAll = opponents
-    .filter((item) => trickRoom ? item.speed < targetSpeed : item.speed > targetSpeed)
-    .sort((a, b) => trickRoom ? b.speed - a.speed : a.speed - b.speed);
-  const overtaken = overtakenAll.slice(0, 5);
-  const ahead = aheadAll.slice(0, 5);
+  const { overtaken, tied: tiedAll, ahead } = findSpeedNeighbours(focusEntries, focused.key, targetSpeed, level, trickRoom);
   const emptyList = '<li class="neighbour-empty">해당하는 포켓몬이 없어요.</li>';
 
   speedEv.value = String(focusEv);
@@ -362,60 +118,7 @@ function renderChart() {
     return;
   }
 
-  const pokemonBySpeed = new Map<number, Pokemon[]>();
-  selected.forEach((pokemon) => {
-    const group = pokemonBySpeed.get(pokemon.baseSpeed) ?? [];
-    group.push(pokemon);
-    pokemonBySpeed.set(pokemon.baseSpeed, group);
-  });
-  const baseRows: ChartRow[] = [...pokemonBySpeed.entries()]
-    .map(([baseSpeed, pokemon]) => ({
-      key: `base-${baseSpeed}`,
-      baseSpeed,
-      chips: pokemon.map((item) => ({
-        key: `pokemon-${item.id}`,
-        name: item.koreanName,
-        sprite: item.sprite,
-        mega: false,
-        pokemonId: item.id,
-        pickRank: activePreset && (pickRankById.get(item.id) ?? Infinity) <= activePreset
-          ? pickRankById.get(item.id)
-          : undefined,
-        abilityNames: item.speedAbilities.map((ability) => ability.name),
-        megaCount: item.megaForms.length,
-      })),
-      range: calculateRange(baseSpeed, level),
-      tracks: pokemon.flatMap((item) => abilityTracks(item.koreanName, item.baseSpeed, item.speedAbilities)),
-      mega: false,
-    }));
-  const megaRows: ChartRow[] = selected.flatMap((pokemon) => pokemon.megaForms.map((mega) => ({
-    key: `mega-${mega.id}`,
-    baseSpeed: mega.baseSpeed,
-    chips: [{
-      key: `mega-chip-${mega.id}`,
-      name: `${pokemon.koreanName} · ${mega.name}`,
-      sprite: mega.sprite,
-      mega: true,
-      abilityNames: mega.speedAbilities.map((ability) => ability.name),
-    }],
-    range: calculateRange(mega.baseSpeed, level),
-    tracks: abilityTracks(`${pokemon.koreanName} · ${mega.name}`, mega.baseSpeed, mega.speedAbilities, mega.sprite),
-    mega: true,
-  })));
-  const rowsBySpeed = new Map<number, ChartRow>();
-  [...baseRows, ...megaRows].forEach((row) => {
-    const existing = rowsBySpeed.get(row.baseSpeed);
-    if (!existing) {
-      rowsBySpeed.set(row.baseSpeed, row);
-      return;
-    }
-    existing.key = `speed-${row.baseSpeed}`;
-    existing.chips.push(...row.chips);
-    existing.tracks.push(...row.tracks);
-    existing.mega = existing.mega && row.mega;
-  });
-  const rows = [...rowsBySpeed.values()]
-    .sort((a, b) => b.baseSpeed - a.baseSpeed || Number(a.mega) - Number(b.mega));
+  const rows = buildChartRows(selected, level, activePreset, pickRankById);
   focusEntries = rows.flatMap((row) => row.chips.map((chip) => ({
     key: chip.key,
     name: chip.name,
@@ -529,6 +232,7 @@ function renderChart() {
     };
     chip.addEventListener('click', showFocus);
     chip.addEventListener('keydown', (event) => {
+      if (event.target !== chip) return;
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         showFocus();
@@ -538,17 +242,6 @@ function renderChart() {
   renderSpeedLab();
 }
 
-function findMatches(query: string, limit = 6) {
-  const needle = normalize(query);
-  if (!needle) return [];
-  const exact = pokemonIndex.get(needle);
-  const matches = allPokemon.filter((pokemon) =>
-    [pokemon.koreanName, pokemon.englishName, pokemon.slug, String(pokemon.id)]
-      .some((value) => normalize(value).includes(needle)),
-  );
-  return exact ? [exact, ...matches.filter((item) => item.id !== exact.id)].slice(0, limit) : matches.slice(0, limit);
-}
-
 function hideSuggestions() {
   suggestions.hidden = true;
   suggestions.innerHTML = '';
@@ -556,7 +249,7 @@ function hideSuggestions() {
 }
 
 function showSuggestions(query: string) {
-  const matches = findMatches(query);
+  const matches = findMatches(allPokemon, pokemonIndex, query);
   if (!matches.length) {
     hideSuggestions();
     return;
@@ -652,51 +345,6 @@ function setComparison(pokemon: Pokemon[], nextLevel: number) {
   renderChart();
 }
 
-function registerWebMcpTool() {
-  const context = document.modelContext;
-  if (!context?.registerTool) return;
-
-  const controller = new AbortController();
-  const registration = context.registerTool({
-    name: 'set_pokemon_speed_comparison',
-    title: '포켓몬 스피드 비교 설정',
-    description: '한국어·영어 이름 또는 도감 번호로 최대 6마리를 선택하고, 표시할 레벨을 설정합니다.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pokemonNames: { type: 'array', minItems: 1, maxItems: 6, items: { type: 'string' } },
-        level: { type: 'integer', enum: [50, 100] },
-      },
-      required: ['pokemonNames', 'level'],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: false, untrustedContentHint: false },
-    execute(rawInput) {
-      if (!rawInput || typeof rawInput !== 'object') throw new Error('입력은 객체여야 합니다.');
-      const toolInput = rawInput as { pokemonNames?: unknown; level?: unknown };
-      if (!Array.isArray(toolInput.pokemonNames) || toolInput.pokemonNames.length < 1 || toolInput.pokemonNames.length > 6) {
-        throw new Error('pokemonNames에는 1~6개의 이름이 필요합니다.');
-      }
-      if (toolInput.level !== 50 && toolInput.level !== 100) throw new Error('level은 50 또는 100이어야 합니다.');
-
-      const resolved = toolInput.pokemonNames.map((name) =>
-        typeof name === 'string' ? pokemonIndex.get(normalize(name)) : undefined,
-      );
-      const missing = toolInput.pokemonNames.filter((_, index) => !resolved[index]);
-      if (missing.length) throw new Error(`존재하지 않는 포켓몬: ${missing.join(', ')}`);
-
-      const unique = [...new Map((resolved as Pokemon[]).map((pokemon) => [pokemon.id, pokemon])).values()];
-      setComparison(unique, toolInput.level);
-      return {
-        level,
-        pokemon: unique.map((item) => ({ name: item.koreanName, baseSpeed: item.baseSpeed, ...calculateRange(item.baseSpeed, level) })),
-      };
-    },
-  }, { signal: controller.signal });
-
-  void Promise.resolve(registration).catch(() => controller.abort());
-}
-
 input.addEventListener('input', () => {
   message.textContent = '한국어·영어 이름 또는 도감 번호로 찾을 수 있어요.';
   message.className = 'search-message';
@@ -763,13 +411,11 @@ labClose.addEventListener('click', () => {
 });
 
 async function loadPokemon() {
+  dataControls.forEach((control) => { control.disabled = true; });
   try {
-    const response = await fetch('/data/pokemon.json');
-    if (!response.ok) throw new Error('데이터 파일을 불러오지 못했습니다.');
-    const data = await response.json() as PokemonData;
-    const rankingForms = data.rankings.double.rows.map((row) => row.pokemon);
-    allPokemon = [...new Map([...data.pokemon, ...rankingForms].map((pokemon) => [pokemon.id, pokemon])).values()];
-    pokemonIndex = buildIndex(allPokemon);
+    const { data, pokemon, index } = await loadPokemonData();
+    allPokemon = pokemon;
+    pokemonIndex = index;
     doubleRanking = data.rankings.double.rows;
     pickRankById = new Map(doubleRanking.map((row) => [row.pokemon.id, row.rank]));
     selected = INITIAL_IDS.map((id) => allPokemon.find((item) => item.id === id)).filter((item): item is Pokemon => Boolean(item));
@@ -778,9 +424,11 @@ async function loadPokemon() {
     dataStamp.textContent = `${data.meta.count.toLocaleString('ko-KR')}마리 · 메가 ${data.meta.megaFormCount}폼 · 스피드 특성 ${data.meta.speedAbilityPokemonCount}마리 · ${date} 동기화`;
     rankingStamp.textContent = `포케챔스 시즌 ${data.rankings.double.season} · ${data.rankings.double.updated ?? '최근 갱신'}`;
     renderChart();
-    registerWebMcpTool();
+    registerWebMcpTool(pokemonIndex, setComparison);
+    dataControls.forEach((control) => { control.disabled = false; });
   } catch {
-    chart.innerHTML = `<div class="empty-state error-state"><strong>도감 데이터를 불러오지 못했어요.</strong><span>터미널에서 npm run sync:data를 실행해 주세요.</span></div>`;
+    chart.innerHTML = `<div class="empty-state error-state"><strong>도감 데이터를 불러오지 못했어요.</strong><span>연결을 확인한 뒤 다시 시도해 주세요.</span><button type="button" id="retry-data">다시 시도</button></div>`;
+    chart.querySelector<HTMLButtonElement>('#retry-data')!.addEventListener('click', () => void loadPokemon());
     dataStamp.textContent = '데이터 없음';
   }
 }
