@@ -67,6 +67,9 @@ button { cursor: pointer; }
 .level-button.active { background: var(--paper); color: var(--blue); box-shadow: 0 2px 10px rgba(23, 33, 59, .08); }
 
 main { max-width: 1500px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 68px) 42px; }
+.site-footer { max-width: 1500px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 68px) 24px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.site-footer p { margin: 0 0 6px; }
+.site-footer a { color: inherit; text-underline-offset: 3px; }
 
 .intro {
   min-height: 260px;

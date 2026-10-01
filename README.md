@@ -1,4 +1,4 @@
-# Speed Dex
+# PokeDetail
 
 포켓몬 스피드 범위 비교 도구입니다. Vite와 TypeScript를 사용하며, 실행 중 데이터는 로컬 JSON에서 읽습니다.
 
@@ -27,6 +27,12 @@
 - `npm run build`: TypeScript 검사 및 `dist` 빌드
 - `npm run preview`: 빌드 결과를 로컬에서 제공
 - `npm run sync:data`: 외부 데이터 갱신. 리팩터링 검증에는 필요하지 않습니다.
+
+## 출처 및 권리
+
+데이터는 [PokéAPI CSV](https://github.com/PokeAPI/pokeapi/tree/master/data/v2/csv), 픽률은 [포케챔스](https://pokemon.yodams.com/stats/double), 이미지는 [PokéAPI sprites](https://github.com/PokeAPI/sprites)에서 가져옵니다. 원본 라이선스와 권리 안내는 `public/licenses/`에 보존하고 화면 하단에 연결했습니다. 이 표기는 권리자의 이용 허락이나 제휴를 의미하지 않습니다.
+
+현재 포켓몬 위키의 문서나 이미지를 직접 가져오는 코드는 없습니다. [위키 저작권 안내](https://pokemon.fandom.com/ko/wiki/포켓몬_위키:저작권)는 CC BY-SA 3.0과 상업적 이용 금지를 함께 기재하지만, [CC BY-SA 3.0 원문 요약](https://creativecommons.org/licenses/by-sa/3.0/deed.ko)은 상업적 이용을 허용합니다. 추후 해당 자료를 도입한다면 이 불일치와 개별 이미지 권리를 확인하고, 문서별 저작자·원문·라이선스·수정 내역을 표기해야 합니다. 위키의 라이선스를 PokeDetail 전체나 Pokémon 이미지에 적용하지 않습니다.
 
 ## 사용자 QA 목록
 
